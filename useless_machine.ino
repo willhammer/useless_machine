@@ -25,65 +25,71 @@ press_servo_state press_state = press_servo_state::press_idle;
 move_servo_state move_state = move_servo_state::move_idle;
 
 
-const int numSwitches = 5;
+const short numSwitches = 5;
 
 //angles are hardcoded to the test build.
-const int valPressStartPosition = 60;
-const int valPressEndPosition = 29;
-const int valPressRestPosition = 90;
+const short valPressStartPosition = 45;//60;
+const short valPressEndPosition = 29;
+const short valPressRestPosition = 90;
 
-int servoMin = 0;
-int servoMax = 180;
+short servoMin = 0;
+short servoMax = 180;
 
-int valMin = 0;
-int valMax = 180;
+short valMin = 0;
+short valMax = 180;
 
 //angles are hardcoded to the test build.
-const int switchAngles[numSwitches] = {138, 120, 95, 68, 49}; //switches 1 to 5, right to left
+const short switchAngles[numSwitches] = {138, 120, 95, 68, 49}; //switches 1 to 5, right to left
 bool switchStates[numSwitches] = {false, false, false, false, false};
 
-int valMove = switchAngles[2];
-int valPress = valPressRestPosition;//switch close angle: 31 //switch idle position: 90 //switch start position: 45
+short valMoveRestPosition = switchAngles[2];
+short valMove = valMoveRestPosition;
+short valPress = valPressRestPosition;//switch close angle: 31 //switch idle position: 90 //switch start position: 45
 
-const int pinOffset = 2;
+const short pinOffset = 2;
 
-const int ledPin = 13;
+const short ledPin = 13;
 
-int goToToggle = -1;
+short goToToggle = -1;
+
+short moveDirection = 0;
+short moveDiff = 360;
 
 bool overallPinState = false;
 
-int idleFrames = 0;
+unsigned int idleFrames = 0;
 
 void update_states()
 {
+  //current state
+  valPress = servoPress.read();
+  valMove = servoMove.read();
+
+  if(goToToggle != -1)
+  {
+    moveDiff = switchAngles[goToToggle] - valMove;
+    moveDirection = moveDiff > 0 ? 1 : -1;  
+  }  
+  
   bool overallState = false;
   
   for(int i = 0; i < numSwitches; ++i)
   {
-    bool newState = (digitalRead(i + pinOffset) == HIGH);
-    
-#ifdef DEBUG
-    Serial.write(i);
-    //Serial.write(newState);
-#endif
+    bool newState = (digitalRead(i + pinOffset) == HIGH);    
+
     switchStates[i] = newState;
     
     if(newState == true)
     {
       overallState = true;
-      
-      if(move_state == move_servo_state::move_idle)
-      {
-        idleFrames = 0;
-        move_state = move_servo_state::moving;
-      }
     }
   }
 
   if(overallState != overallPinState)
   {
+#ifdef DEBUG
     Serial.write(overallState);
+#endif
     overallPinState = overallState;    
   }
 
@@ -120,7 +126,7 @@ void setup()
 int find_closest_toggle_index()
 {
   int closestIndex = -1;
-  int minDist = 200;
+  int minDist = 360;
   for(int i = 0; i < numSwitches; ++i)
   {
     if(switchStates[i] == false)
@@ -140,84 +146,96 @@ int find_closest_toggle_index()
 
 void loop() 
 {
-  const int speed = 1; 
+  const int speed = 3; 
 
-  //current state
-  valPress = servoPress.read();
-  valMove = servoMove.read();
+
     
   update_states();
-  
-  if(move_state == move_servo_state::moving && press_state == press_servo_state::press_idle)
-  {
-    digitalWrite(ledPin, HIGH);
 
-    goToToggle =  find_closest_toggle_index();
-    
-    if(valMove == switchAngles[goToToggle])
-    {
-      press_state = press_servo_state::toggling;
-      return;
-    }
-    
-    servoMove.write(switchAngles[goToToggle]);
-    
-    delay(15);
-    return;
-  }
-  
-  if(move_state == move_servo_state::moving && press_state == press_servo_state::toggling)
+  switch(move_state)
   {
-    if(valPress > valPressEndPosition)
-    {
-      servoPress.write(valPress - speed);
-      delay(15);
-    }
-    
-    else
-    {
-      digitalWrite(ledPin, LOW);
+    case move_servo_state::move_idle:
       
-      if(switchStates[goToToggle] == false)
+      if(overallPinState == true)
       {
-        press_state = press_servo_state::press_returning;
-      }      
+        idleFrames = 0;
+        move_state = move_servo_state::moving;
+      }
+    
+      if(press_state == press_servo_state::press_idle)
+      {
+        ++idleFrames;
+    
+        if(idleFrames > 10)
+        {
+          servoPress.write(valPressRestPosition);
+        }
+      }
+    break;
+
+    
+    case move_servo_state::moving:
+      switch(press_state)
+      {
+        case press_servo_state::press_idle:
+          if(goToToggle == -1)
+          {
+            goToToggle = find_closest_toggle_index();  
+          }          
+
+          else if(abs(moveDiff) < 2)
+          {
+            press_state = press_servo_state::toggling;       
+          }
+          else
+          {
+            servoMove.write(valMove + moveDirection * speed);
+          }
+        break;
+    
+    
+        case press_servo_state::toggling:  
+          if(valPress > valPressEndPosition)
+          {
+            servoPress.write(valPress - speed);
+          }
+          
+          else
+          {
+            if(switchStates[goToToggle] == false)
+            {
+              press_state = press_servo_state::press_returning;
+            }      
+          }
+        break;
+        
+        case press_servo_state::press_returning:    
+          if(valPress < valPressStartPosition)
+          {
+            servoPress.write(valPress + speed);
+          }
+          
+          else
+          {
+            if(abs(moveDiff) < 2)
+            {
+              servoMove.write(valMove + moveDirection * speed);
+            }
+            
+            //servoPress.write(valPressStartPosition);
+            
+            move_state = move_servo_state::move_idle;
+            goToToggle = -1;
+            
+            press_state = press_servo_state::press_idle;
+          }
+        break;
     }
-    
-    
-    return;
+    break;
   }
 
-  if(move_state == move_servo_state::moving && press_state == press_servo_state::press_returning)
-  {
-    digitalWrite(ledPin, LOW);
-    
-    valPress = servoPress.read();
-    
-    if(valPress != valPressStartPosition)
-    {
-      servoPress.write(valPressStartPosition);
-    }
-    
-    else
-    {
-      servoMove.write(switchAngles[2]);
-      servoPress.write(valPressStartPosition);
-      move_state = move_servo_state::move_idle;
-      press_state = press_servo_state::press_idle;
-    }
-
-    delay(15);
-    return;
-  }
-  if(move_state == move_servo_state::move_idle && press_state == press_servo_state::press_idle)
-  {
-    ++idleFrames;
-
-    if(idleFrames > 10)
-      servoPress.write(valPressRestPosition);
-
-    delay(15);
-    return;
-  }
+  delay(15);
+  
+  
+  
 }
