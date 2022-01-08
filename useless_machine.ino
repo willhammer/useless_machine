@@ -1,7 +1,8 @@
+
 // Include the Servo library 
 #include <Servo.h> 
 
-#define DEBUG
+//#define DEBUG
 
 Servo servoMove;
 Servo servoPress;
@@ -27,8 +28,9 @@ move_servo_state move_state = move_servo_state::move_idle;
 const int numSwitches = 5;
 
 //angles are hardcoded to the test build.
-const int valPressStartPosition = 30;
-const int valPressEndPosition = 1;
+const int valPressStartPosition = 60;
+const int valPressEndPosition = 29;
+const int valPressRestPosition = 90;
 
 int servoMin = 0;
 int servoMax = 180;
@@ -37,11 +39,11 @@ int valMin = 0;
 int valMax = 180;
 
 //angles are hardcoded to the test build.
-const int switchAngles[numSwitches] = {8,30,58,78,96};
+const int switchAngles[numSwitches] = {138, 120, 95, 68, 49}; //switches 1 to 5, right to left
 bool switchStates[numSwitches] = {false, false, false, false, false};
 
 int valMove = switchAngles[2];
-int valPress = valPressStartPosition;
+int valPress = valPressRestPosition;//switch close angle: 31 //switch idle position: 90 //switch start position: 45
 
 const int pinOffset = 2;
 
@@ -49,8 +51,14 @@ const int ledPin = 13;
 
 int goToToggle = -1;
 
+bool overallPinState = false;
+
+int idleFrames = 0;
+
 void update_states()
 {
+  bool overallState = false;
+  
   for(int i = 0; i < numSwitches; ++i)
   {
     bool newState = (digitalRead(i + pinOffset) == HIGH);
@@ -60,14 +68,26 @@ void update_states()
     //Serial.write(newState);
 #endif
     switchStates[i] = newState;
-
-    if(newState == true && move_state == move_servo_state::move_idle)
+    
+    if(newState == true)
     {
-      move_state = move_servo_state::moving;
+      overallState = true;
+      
+      if(move_state == move_servo_state::move_idle)
+      {
+        idleFrames = 0;
+        move_state = move_servo_state::moving;
+      }
     }
   }
-  
-  
+
+  if(overallState != overallPinState)
+  {
+    Serial.write(overallState);
+    overallPinState = overallState;    
+  }
+
+  digitalWrite(ledPin, overallPinState ? HIGH : LOW);
 }
 
 void setup() 
@@ -80,7 +100,8 @@ void setup()
   Serial.write(1);
 #endif
   pinMode(ledPin, OUTPUT);
-
+  
+  
   for(int i = 0; i < numSwitches; ++i)
   {
     pinMode(i + pinOffset, INPUT_PULLUP);
@@ -131,7 +152,7 @@ void loop()
   {
     digitalWrite(ledPin, HIGH);
 
-    goToToggle = find_closest_toggle_index();
+    goToToggle =  find_closest_toggle_index();
     
     if(valMove == switchAngles[goToToggle])
     {
@@ -139,8 +160,7 @@ void loop()
       return;
     }
     
-    valMove = switchAngles[goToToggle];
-    servoMove.write(valMove);
+    servoMove.write(switchAngles[goToToggle]);
     
     delay(15);
     return;
@@ -150,17 +170,13 @@ void loop()
   {
     if(valPress > valPressEndPosition)
     {
-      valPress -= speed;
-      servoPress.write(valPress);
-
+      servoPress.write(valPress - speed);
       delay(15);
     }
     
     else
     {
       digitalWrite(ledPin, LOW);
-
-      update_states();
       
       if(switchStates[goToToggle] == false)
       {
@@ -175,18 +191,18 @@ void loop()
   if(move_state == move_servo_state::moving && press_state == press_servo_state::press_returning)
   {
     digitalWrite(ledPin, LOW);
-    servoMove.write(switchAngles[3]);
-
+    
     valPress = servoPress.read();
     
     if(valPress != valPressStartPosition)
     {
-      valPress = valPressStartPosition;
-      servoPress.write(valPress);
+      servoPress.write(valPressStartPosition);
     }
     
     else
     {
+      servoMove.write(switchAngles[2]);
+      servoPress.write(valPressStartPosition);
       move_state = move_servo_state::move_idle;
       press_state = press_servo_state::press_idle;
     }
@@ -194,5 +210,14 @@ void loop()
     delay(15);
     return;
   }
-  
+  if(move_state == move_servo_state::move_idle && press_state == press_servo_state::press_idle)
+  {
+    ++idleFrames;
+
+    if(idleFrames > 10)
+      servoPress.write(valPressRestPosition);
+
+    delay(15);
+    return;
+  }
 }
