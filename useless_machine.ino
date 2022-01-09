@@ -39,7 +39,7 @@ short valMin = 0;
 short valMax = 180;
 
 //angles are hardcoded to the test build.
-const short switchAngles[numSwitches] = {138, 120, 95, 68, 49}; //switches 1 to 5, right to left
+const short switchAngles[numSwitches] = {136, 120, 95, 67, 47}; //switches 1 to 5, right to left
 bool switchStates[numSwitches] = {false, false, false, false, false};
 
 short valMoveRestPosition = switchAngles[2];
@@ -58,6 +58,10 @@ short moveDiff = 360;
 bool overallPinState = false;
 
 unsigned int idleFrames = 0;
+
+short speed = 1; 
+short delayBase = 15;
+short delayInterval = delayBase;
 
 void update_states()
 {
@@ -107,7 +111,6 @@ void setup()
 #endif
   pinMode(ledPin, OUTPUT);
   
-  
   for(int i = 0; i < numSwitches; ++i)
   {
     pinMode(i + pinOffset, INPUT_PULLUP);
@@ -143,13 +146,8 @@ int find_closest_toggle_index()
   return closestIndex;
 }
 
-
 void loop() 
-{
-  const int speed = 3; 
-
-
-    
+{  
   update_states();
 
   switch(move_state)
@@ -169,6 +167,9 @@ void loop()
         if(idleFrames > 10)
         {
           servoPress.write(valPressRestPosition);
+          speed = random(1,4);
+          int delayMultiplier = random(1,3);
+          delayInterval = delayBase * delayMultiplier;
         }
       }
     break;
@@ -183,8 +184,13 @@ void loop()
             goToToggle = find_closest_toggle_index();  
           }          
 
-          else if(abs(moveDiff) < 2)
+          else if(abs(moveDiff) < speed)
           {
+            servoMove.write(switchAngles[goToToggle]);
+            short randVal = random(1,20);
+            if(randVal == 5)
+              delay(random(1000, 5000));
+            
             press_state = press_servo_state::toggling;       
           }
           else
@@ -197,6 +203,10 @@ void loop()
         case press_servo_state::toggling:  
           if(valPress > valPressEndPosition)
           {
+            short randVal = random(1,50);
+            if(randVal == 27)
+              press_state = press_servo_state::press_returning;
+            
             servoPress.write(valPress - speed);
           }
           
@@ -217,12 +227,15 @@ void loop()
           
           else
           {
-            if(abs(moveDiff) < 2)
+            if(abs(moveDiff) < speed)
+            {
+              servoMove.write(switchAngles[goToToggle]);
+              
+            }
+            else
             {
               servoMove.write(valMove + moveDirection * speed);
             }
-            
-            //servoPress.write(valPressStartPosition);
             
             move_state = move_servo_state::move_idle;
             goToToggle = -1;
@@ -234,7 +247,7 @@ void loop()
     break;
   }
 
-  delay(15);
+  delay(delayInterval);
   
   
   
